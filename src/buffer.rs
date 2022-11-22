@@ -7,6 +7,7 @@ use crate::terminal::Position;
 pub(crate) struct Buffer{
     pub name: String,
     lines: Vec<String>,
+    pub read_only: bool,
 }
 
 pub(crate) enum Direction{
@@ -24,6 +25,7 @@ impl Default for Buffer{
         Self{
              lines: vec![],
              name: String::from("scratch"),
+             read_only: false,
         }
     }
 }
@@ -32,11 +34,15 @@ impl Buffer{
     pub fn open(file_path: &str)->Self{
         let path = Path::new(file_path);
         let mut name = String::from("scratch");
-        let vec: Vec<String> = match RFile::open(path){
+        let mut read_only = false;
+        let file = RFile::open(path);
+        let vec: Vec<String> = match file {
             Ok(f) =>{
-                let reader = BufReader::new(f);
+                let reader = BufReader::new(f.try_clone().unwrap());
                 let lines: Vec<String> = reader.lines().map(|l| l.expect("red: error: could not parse line")).collect();
                 name = path.file_name().unwrap().to_os_string().into_string().unwrap();
+                drop(f);
+
                 lines
             },
             Err(e) =>{
@@ -44,9 +50,16 @@ impl Buffer{
             }
         };
 
+        if let Ok(f) = RFile::open(path){
+            let stats = f.metadata().unwrap();
+            read_only = stats.permissions().readonly();
+        }
+
+
         Self{
             lines: vec,
             name: name,
+            read_only: read_only,
         }
 
     }
@@ -70,6 +83,9 @@ impl Buffer{
     }
 
     pub(crate) fn insert(&mut self, pos: Position, c: char){
+        if self.read_only{
+            return
+        }
         if c=='\n'{
             self.insert_newline(pos);
         }

@@ -26,6 +26,7 @@ pub struct Editor{
     draw_accumulator: u32,
     write_status: bool,
     line_numbers: bool,
+    line_offset: u16,
 }
 
 impl Default for Editor{
@@ -41,6 +42,7 @@ impl Default for Editor{
             draw_accumulator: 0,
             write_status: true, // Initialized to true because the "scratch" buffer will be "written" to since there is no data
             line_numbers: false,
+            line_offset: 0,
         }
     }
 }
@@ -62,13 +64,14 @@ impl Editor{
         loop{
             if self.should_close{
                 if self.write_status == false{
-                    match self.prompt(format!("Open buffer {} contains data, quit anyways (yes/no/write)? ",self.buffer.name).as_str()).trim().to_lowercase().as_str(){
-                        "y" | "yes" => break,
-                        "n" | "no"=> {
-                            self.should_close = false;
-                        },
-                        "w" | "write" =>{
+                    match self.prompt(format!("Open buffer {} contains data, write to disk (yes/no/cancel)? ",self.buffer.name).as_str()).trim().to_lowercase().as_str(){
+                        "n" | "no"  => break,
+                        "y" | "yes" => {
                             self.write_to_disk();
+                            break
+                        },
+                        "c" | "cancel" =>{
+                            self.should_close = false;
                         }
                         _ =>{},
 
@@ -135,10 +138,14 @@ impl Editor{
 
     fn prompt(&mut self, message: &str) -> String{
         self.update_status(message);
-        stdout().execute(cursor::MoveTo(0 as u16,self.window_size.rows)).ok();
-        stdout().execute(crossterm::terminal::Clear(ClearType::CurrentLine)).ok();
-        print!("{}",self.status_message);
-        stdout().execute(cursor::MoveTo(message.len() as u16,self.window_size.rows)).ok();
+        execute!(
+                stdout(),
+                cursor::MoveTo(0 as u16,self.window_size.rows),
+                crossterm::terminal::Clear(ClearType::CurrentLine),
+                Print(self.status_message.clone()),
+                cursor::MoveTo(message.len() as u16,self.window_size.rows),
+                ).ok();
+
         let mut buf = String::new();
         crossterm::terminal::disable_raw_mode().ok();
         stdin().read_line(&mut buf).expect("red: error: failed to read in from stdin");
@@ -146,27 +153,27 @@ impl Editor{
         buf
     }
 
-    fn open_file(&mut self){
+    fn open_file(&mut self, file_name: &str){
         if self.write_status ==false{
             self.prompt_write();
         }
-        let mut file_name = self.prompt("File to be opened: ");
-        file_name = file_name.trim().to_string();
         let new_buffer = Buffer::open(file_name.trim().as_ref());
         if new_buffer.name.as_str() != "scratch"{
             self.buffer = new_buffer;
             self.cursor_pos = Default::default();
-            self.update_status(format!("Successfully opened file {}",file_name).as_str());
+            if !self.buffer.read_only{
+                self.update_status(format!("Successfully opened file {}",file_name).as_str());
+            }
         }
         else{
             match self.prompt(format!("Failed to open file {}. Create a file with the same name? ",file_name).as_str()).trim().to_lowercase().as_str(){
                 "yes" | "y" =>{
-                    let file_name = file_name.as_str();
+                    let file_name = file_name;
                     self.buffer.name = file_name.to_string();
                     self.write_to_disk();
                     self.buffer = Buffer::open(file_name);
                 },
-                "no" | "n" =>{
+                "n" | "no" =>{
                     self.update_status("");
                 },
                 _ =>{},
@@ -186,13 +193,24 @@ impl Editor{
         if key_event.code == KeyCode::Char('q') && key_event.modifiers.contains(KeyModifiers::CONTROL) {
             self.should_close = true;
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('o') {
-            self.open_file();
+            let mut file_name = self.prompt("File to be opened: ");
+            file_name = file_name.trim().to_string();
+            self.open_file(file_name.as_str());
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('w'){
             self.write_to_disk();
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('n'){
             self.new_buffer();
         }else if key_event.code == KeyCode::F(4){
             self.line_numbers = !self.line_numbers;
+            self.line_offset = match self.line_numbers{
+                true =>{
+                    (self.cursor_pos.r.to_string().bytes().map(|_b| 1).sum::<u16>()) +1
+                },
+                false=>0,
+            };
+        }else if key_event.code == KeyCode::F(2){
+            self.open_file("LICENSE");
+
         }
 
         else{
@@ -216,17 +234,22 @@ impl Editor{
                 }
                 KeyCode::Home | KeyCode::End =>{self.move_cursor(key_event.code)}
                 KeyCode::Enter=>{
-                    self.write_status = false;
+                    if !self.buffer.read_only{
+                        self.write_status = false;
+                    }
                     self.buffer.insert(self.cursor_pos,'\n');
                     self.move_cursor(KeyCode::Down);
                 }
                 KeyCode::Char(c) => {
-                    self.write_status = false;
-                    self.buffer.insert(self.cursor_pos,c);
+                    if !self.buffer.read_only{
+                        self.write_status = false;
+                    }                    self.buffer.insert(self.cursor_pos,c);
                     self.move_cursor(KeyCode::Right);
                 },
                 KeyCode::Tab => {
-                    self.write_status = false;
+                    if !self.buffer.read_only{
+                        self.write_status = false;
+                    }
                     self.buffer.insert(self.cursor_pos, '\t');
                     self.move_cursor(KeyCode::Right);
                     self.move_cursor(KeyCode::Right);
@@ -252,7 +275,7 @@ impl Editor{
                     Print(format!("{:<2}",i)),
                     SetColors(Colors::new(Color::Reset,Color::Reset)),
                     ).unwrap();
-                    stdout.execute(cursor::MoveTo(2,i)).ok();
+                    stdout.execute(cursor::MoveTo(self.line_offset,i)).ok();
                 }
                 else{
                     stdout.execute(cursor::MoveTo(0,i)).ok();
@@ -263,18 +286,22 @@ impl Editor{
                 }
 
         }
-        let pos: (u16,u16) = self.cursor_pos.into();
+
         self.draw_modeline();
-        stdout.queue(cursor::MoveTo(pos.0,pos.1)).ok();
+        stdout.queue(cursor::MoveTo(self.cursor_pos.c + self.line_offset,self.cursor_pos.r)).ok();
         stdout.queue(cursor::Show).ok();
         stdout.flush().ok();
     }
 
     fn draw_status(&mut self){
-        stdout().execute(cursor::MoveTo(0 as u16,self.window_size.rows)).ok();
-        stdout().execute(crossterm::terminal::Clear(ClearType::CurrentLine)).ok();
-        print!("{}",self.status_message.trim());
-        stdout().execute(cursor::MoveTo(self.cursor_pos.c,self.cursor_pos.r)).ok();
+
+        execute!(stdout(),
+                 cursor::MoveTo(0 as u16,self.window_size.rows),
+                 crossterm::terminal::Clear(ClearType::CurrentLine),
+                 Print(self.status_message.trim()),
+                 cursor::MoveTo(self.cursor_pos.c + self.line_offset,self.cursor_pos.r),
+                ).ok();
+
         if self.draw_accumulator == 20{
             self.status_message.truncate(0);
             self.draw_accumulator = 0;
@@ -285,7 +312,12 @@ impl Editor{
         let len = self.window_size.cols as usize;
         let file_status_str = match self.write_status{
             true =>{
-                ""
+                if self.buffer.read_only{
+                    "readonly"
+                }
+                else{
+                    ""
+                }
             },
             false =>{
                 "modified"
@@ -308,6 +340,7 @@ impl Editor{
 
 
     fn move_cursor(&mut self, code: KeyCode) {
+
 
         match code{
             KeyCode::Up =>{
