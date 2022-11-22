@@ -24,7 +24,8 @@ pub struct Editor{
     mark_delta: (Position,Position),
     status_message: String,
     draw_accumulator: u32,
-    save_status: bool,
+    write_status: bool,
+    line_numbers: bool,
 }
 
 impl Default for Editor{
@@ -38,7 +39,8 @@ impl Default for Editor{
             mark_delta: (Default::default(),Default::default()),
             status_message: String::new(),
             draw_accumulator: 0,
-            save_status: false,
+            write_status: true, // Initialized to true because the "scratch" buffer will be "written" to since there is no data
+            line_numbers: false,
         }
     }
 }
@@ -59,12 +61,15 @@ impl Editor{
         self.init();
         loop{
             if self.should_close{
-                if self.save_status == false{
-                    match self.prompt(format!("Open buffer {} contains data, exit anyways? ",self.buffer.name).as_str()).trim().to_lowercase().as_str(){
+                if self.write_status == false{
+                    match self.prompt(format!("Open buffer {} contains data, quit anyways (yes/no/write)? ",self.buffer.name).as_str()).trim().to_lowercase().as_str(){
                         "y" | "yes" => break,
                         "n" | "no"=> {
                             self.should_close = false;
                         },
+                        "w" | "write" =>{
+                            self.write_to_disk();
+                        }
                         _ =>{},
 
                     }
@@ -72,6 +77,7 @@ impl Editor{
                 else{
                     break;
                 }
+                self.update_status("");
             }
             if crossterm::event::poll(std::time::Duration::from_millis(500)).unwrap(){
                 match read()?{
@@ -85,11 +91,46 @@ impl Editor{
                     _=>{},
                 }
             }
-            self.draw_rows();
+            self.draw_lines();
             self.draw_status();
             self.draw_accumulator += 1;
         }
         Ok(())
+    }
+
+    fn write_to_disk(&mut self){
+        let file_name: String = match self.buffer.name.as_str(){
+            "scratch" =>{
+                self.prompt("File name to write:  ")
+            },
+            _ => {self.buffer.name.clone()},
+        };
+        let file_name = file_name.trim().to_string();
+        let message = self.buffer.write(Some(file_name.clone()));
+        self.update_status(message.as_str());
+        self.write_status = true;
+    }
+
+    fn prompt_write(&mut self){
+        match self.prompt(format!("Open buffer {} contains data, write to disk (yes/no)? ",self.buffer.name).as_str()).trim().to_lowercase().as_str(){
+            "y" | "yes" => self.write_to_disk(),
+            "n" | "no"=> {
+                return
+            },
+            _ =>{},
+
+        }
+    }
+
+    fn new_buffer(&mut self){
+        if self.write_status == false{
+            self.prompt_write();
+        }
+        // assuming that if the user answers no, all data is discarded.
+        self.buffer = Default::default();
+        self.cursor_pos = (0,0).into();
+        self.update_status("Created a new scratch buffer.");
+        self.write_status = true;
     }
 
     fn prompt(&mut self, message: &str) -> String{
@@ -106,7 +147,11 @@ impl Editor{
     }
 
     fn open_file(&mut self){
-        let file_name = self.prompt("File to be opened: ");
+        if self.write_status ==false{
+            self.prompt_write();
+        }
+        let mut file_name = self.prompt("File to be opened: ");
+        file_name = file_name.trim().to_string();
         let new_buffer = Buffer::open(file_name.trim().as_ref());
         if new_buffer.name.as_str() != "scratch"{
             self.buffer = new_buffer;
@@ -114,7 +159,18 @@ impl Editor{
             self.update_status(format!("Successfully opened file {}",file_name).as_str());
         }
         else{
-            self.update_status(format!("Failed to open file {}",file_name).as_str());
+            match self.prompt(format!("Failed to open file {}. Create a file with the same name? ",file_name).as_str()).trim().to_lowercase().as_str(){
+                "yes" | "y" =>{
+                    let file_name = file_name.as_str();
+                    self.buffer.name = file_name.to_string();
+                    self.write_to_disk();
+                    self.buffer = Buffer::open(file_name);
+                },
+                "no" | "n" =>{
+                    self.update_status("");
+                },
+                _ =>{},
+            }
         }
         stdout().execute(crossterm::terminal::Clear(ClearType::All)).ok();
     }
@@ -132,17 +188,13 @@ impl Editor{
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('o') {
             self.open_file();
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('w'){
-            let file_name: String = match self.buffer.name.as_str(){
-                "scratch" =>{
-                    self.prompt("File name to write:  ")
-                },
-                _ => {self.buffer.name.clone()},
-            };
-            let file_name = file_name.trim().to_string();
-            let message = self.buffer.write(Some(file_name.clone()));
-            self.save_status = true;
-            self.update_status(message.as_str());
+            self.write_to_disk();
+        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('n'){
+            self.new_buffer();
+        }else if key_event.code == KeyCode::F(4){
+            self.line_numbers = !self.line_numbers;
         }
+
         else{
             stdout().execute(crossterm::terminal::Clear(ClearType::All)).ok();
             match key_event.code {
@@ -164,14 +216,17 @@ impl Editor{
                 }
                 KeyCode::Home | KeyCode::End =>{self.move_cursor(key_event.code)}
                 KeyCode::Enter=>{
+                    self.write_status = false;
                     self.buffer.insert(self.cursor_pos,'\n');
                     self.move_cursor(KeyCode::Down);
                 }
                 KeyCode::Char(c) => {
+                    self.write_status = false;
                     self.buffer.insert(self.cursor_pos,c);
                     self.move_cursor(KeyCode::Right);
                 },
                 KeyCode::Tab => {
+                    self.write_status = false;
                     self.buffer.insert(self.cursor_pos, '\t');
                     self.move_cursor(KeyCode::Right);
                     self.move_cursor(KeyCode::Right);
@@ -183,16 +238,30 @@ impl Editor{
         }
     }
 
-    fn draw_rows(&self){
+    fn draw_lines(&self){
         let mut stdout = stdout();
         stdout.execute(cursor::MoveTo(0,0)).ok();
         stdout.execute(cursor::Hide).ok();
         stdout.execute(crossterm::terminal::Clear(ClearType::All)).ok();
-        if self.buffer.len() !=0{
-            for i in 0..self.buffer.len() as u16{
-                stdout.execute(cursor::MoveTo(0,i)).ok();
-                write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
-            }
+            for i in 0..self.window_size.rows as u16{
+                if self.line_numbers{
+                    execute!(
+                            stdout,
+                    cursor::MoveTo(0,i),
+                    SetColors(Colors::new(Color::Black,Color::White)),
+                    Print(format!("{:<2}",i)),
+                    SetColors(Colors::new(Color::Reset,Color::Reset)),
+                    ).unwrap();
+                    stdout.execute(cursor::MoveTo(2,i)).ok();
+                }
+                else{
+                    stdout.execute(cursor::MoveTo(0,i)).ok();
+                }
+
+                if (i as usize ) < self.buffer.len(){
+                    write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
+                }
+
         }
         let pos: (u16,u16) = self.cursor_pos.into();
         self.draw_modeline();
@@ -213,8 +282,20 @@ impl Editor{
     }
 
     fn draw_modeline(&self){
-        let modeline = format!("{:^20}{}:{}",self.buffer.name,self.cursor_pos.r,self.cursor_pos.c);
         let len = self.window_size.cols as usize;
+        let file_status_str = match self.write_status{
+            true =>{
+                ""
+            },
+            false =>{
+                "modified"
+            },
+        };
+        let bpos = len - file_status_str.len()*4;
+        let modeline = format!("{:^20}{}:{}{:>bpos$}",self.buffer.name,
+                                                    self.cursor_pos.r,
+                                                    self.cursor_pos.c,
+                                                    file_status_str);
         let modeline = format!("{:len$}",modeline);
         execute!(
                 stdout(),
@@ -227,6 +308,7 @@ impl Editor{
 
 
     fn move_cursor(&mut self, code: KeyCode) {
+
         match code{
             KeyCode::Up =>{
                 if self.cursor_pos.r != 0{
@@ -287,6 +369,6 @@ impl Editor{
 
 pub fn cleanup(){
     execute!(stdout(),
-    crossterm::terminal::EnterAlternateScreen
+    crossterm::terminal::LeaveAlternateScreen
     ).expect("red: error: failed to enter alternate screen");
 }

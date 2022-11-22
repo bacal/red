@@ -2,8 +2,23 @@
 name = "red"
 version = "0.1.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/bacal/red"
+description = "A basic WYSIWYG text editor"
+authors  = ["Bacal Mesfin <mesfinb2@vcu.edu>"]
+homepage = "https://github/bacal/red"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.bundle]
+name = "red"
+identifier = "xyz.bacal.red"
+category = "Utility"
+short_description = "A basic WYSIWYG text editor"
+long_description = """
+A WYSIWYG text editor.
+This editor contains basic features such as opening,closing,and writing to files.
+There aren't that many epic features included so don't expect much.
+"""
 
 [dependencies]
 crossterm = "0.25.0"
+

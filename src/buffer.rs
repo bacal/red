@@ -40,8 +40,6 @@ impl Buffer{
                 lines
             },
             Err(e) =>{
-                println!("red: error: failed to find file {}",file_path);
-                println!("{}",e);
                 vec![]
             }
         };
