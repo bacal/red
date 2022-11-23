@@ -1,4 +1,4 @@
-# Red Editor (Rust EDitor) - A barebones text editor written in Rust
+# Red Editor (Rust EDitor)
 Red is a *very* barebones text editor.
 
 # Key Bindings
