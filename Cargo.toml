@@ -22,3 +22,4 @@ There aren't that many epic features included so don't expect much.
 [dependencies]
 crossterm = "0.25.0"
 #clap = "4.0.26"
+colored = "2.0.0"

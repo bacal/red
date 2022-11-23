@@ -7,7 +7,7 @@ use crossterm::event::{KeyEvent,KeyCode,KeyModifiers};
 use crossterm::terminal::ClearType;
 use crossterm::execute;
 use crossterm::style::{Color,Colors,Print,SetColors};
-
+use colored::*;
 enum EditorMode{
     Edit,
     Replace,
@@ -26,7 +26,8 @@ pub struct Editor{
     draw_accumulator: u32,
     write_status: bool,
     line_numbers: bool,
-    line_offset: u16,
+    offset: Position,
+
 }
 
 impl Default for Editor{
@@ -42,7 +43,7 @@ impl Default for Editor{
             draw_accumulator: 0,
             write_status: true, // Initialized to true because the "scratch" buffer will be "written" to since there is no data
             line_numbers: false,
-            line_offset: 0,
+            offset: (0,0).into(),
         }
     }
 }
@@ -104,7 +105,7 @@ impl Editor{
     fn write_to_disk(&mut self){
         let file_name: String = match self.buffer.name.as_str(){
             "scratch" =>{
-                self.prompt("File name to write:  ")
+                 self.prompt(&"File name to write:  ".blue())
             },
             _ => {self.buffer.name.clone()},
         };
@@ -202,7 +203,7 @@ impl Editor{
             self.new_buffer();
         }else if key_event.code == KeyCode::F(4){
             self.line_numbers = !self.line_numbers;
-            self.line_offset = match self.line_numbers{
+            self.offset.c = match self.line_numbers{
                 true =>{
                     (self.cursor_pos.r.to_string().bytes().map(|_b| 1).sum::<u16>()) +1
                 },
@@ -264,32 +265,40 @@ impl Editor{
 
     fn draw_lines(&self){
         let mut stdout = stdout();
-        stdout.execute(cursor::MoveTo(0,0)).ok();
-        stdout.execute(cursor::Hide).ok();
-        stdout.execute(crossterm::terminal::Clear(ClearType::All)).ok();
-            for i in 0..self.window_size.rows as u16{
-                if self.line_numbers{
-                    execute!(
-                            stdout,
-                    cursor::MoveTo(0,i),
-                    SetColors(Colors::new(Color::Black,Color::White)),
-                    Print(format!("{:<2}",i)),
-                    SetColors(Colors::new(Color::Reset,Color::Reset)),
-                    ).unwrap();
-                    stdout.execute(cursor::MoveTo(self.line_offset,i)).ok();
-                }
-                else{
-                    stdout.execute(cursor::MoveTo(0,i)).ok();
-                }
 
-                if (i as usize ) < self.buffer.len(){
+        execute!(stdout,
+        cursor::MoveTo(0,0),
+        cursor::Hide,
+        crossterm::terminal::Clear(ClearType::All),
+        ).ok();
+
+        for i in 0..self.window_size.rows as u16{
+            execute!(
+                    stdout,
+            cursor::MoveTo(0,i),
+            SetColors(Colors::new(Color::Black,Color::White)),
+
+            Print(match self.line_numbers{
+                true => format!("{:<2}",i),
+            false =>String::default(),
+            }),
+            SetColors(Colors::new(Color::Reset,Color::Reset)),
+            cursor::MoveTo(self.offset.c,i + self.offset.r),
+            ).unwrap();
+
+            if (i as usize) < self.buffer.len(){
+                let line = self.buffer.get(i as usize).unwrap();
+                let line_len = line.len();
+                if line_len > self.window_size.cols as usize{
                     write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
                 }
+                write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
+            }
 
         }
 
         self.draw_modeline();
-        stdout.queue(cursor::MoveTo(self.cursor_pos.c + self.line_offset,self.cursor_pos.r)).ok();
+        stdout.queue(cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r)).ok();
         stdout.queue(cursor::Show).ok();
         stdout.flush().ok();
     }
@@ -297,11 +306,11 @@ impl Editor{
     fn draw_status(&mut self){
 
         execute!(stdout(),
-                 cursor::MoveTo(0 as u16,self.window_size.rows),
-                 crossterm::terminal::Clear(ClearType::CurrentLine),
-                 Print(self.status_message.trim()),
-                 cursor::MoveTo(self.cursor_pos.c + self.line_offset,self.cursor_pos.r),
-                ).ok();
+        cursor::MoveTo(0 as u16,self.window_size.rows),
+        crossterm::terminal::Clear(ClearType::CurrentLine),
+        Print(self.status_message.trim()),
+        cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r),
+        ).ok();
 
         if self.draw_accumulator == 20{
             self.status_message.truncate(0);
@@ -324,8 +333,11 @@ impl Editor{
                 "modified"
             },
         };
-        let bpos = len - file_status_str.len()*4;
-        let modeline = format!("{:^20}{}:{}{:>bpos$}",self.buffer.name,
+        let mut bpos = file_status_str.len();
+        if file_status_str.len()*4 < len{
+            bpos = cmp::max(len - file_status_str.len()*4,0);
+        }
+        let modeline = format!("{:^20}{:>5}:{:<5}{:>bpos$}",self.buffer.name,
                                                     self.cursor_pos.r,
                                                     self.cursor_pos.c,
                                                     file_status_str);
