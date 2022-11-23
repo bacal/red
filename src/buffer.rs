@@ -32,16 +32,18 @@ impl Default for Buffer{
 
 impl Buffer{
     pub fn open(file_path: &str)->Self{
-        let path = Path::new(file_path);
+        let path = PathBuf::from(file_path);
         let mut name = String::from("scratch");
         let mut read_only = false;
-        let file = RFile::open(path);
+        let file = RFile::open(path.clone());
         let vec: Vec<String> = match file {
             Ok(f) =>{
                 let reader = BufReader::new(f.try_clone().unwrap());
                 let lines: Vec<String> = reader.lines().map(|l| l.expect("red: error: could not parse line")).collect();
+                let path = path.as_path();
                 name = path.file_name().unwrap().to_os_string().into_string().unwrap();
                 drop(f);
+                std::env::set_current_dir(&path.parent().unwrap_or(Path::new("."))).ok();
 
                 lines
             },

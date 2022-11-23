@@ -209,7 +209,8 @@ impl Editor{
                 false=>0,
             };
         }else if key_event.code == KeyCode::F(2){
-            self.open_file("LICENSE");
+            let path = std::env::current_exe().unwrap().into_os_string().into_string().unwrap();
+            self.open_file((path +"/LICENSE").as_str());
 
         }
 
