@@ -188,78 +188,75 @@ impl Editor{
         self.draw_accumulator = 0;
     }
 
-    // refactor this to use a match statement?
-    fn process_keypress(&mut self, key_event: KeyEvent) {
-        if key_event.code == KeyCode::Char('q') && key_event.modifiers.contains(KeyModifiers::CONTROL) {
-            self.should_close = true;
-        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('o') {
-            let mut file_name = self.prompt("File to be opened: ");
-            file_name = file_name.trim().to_string();
-            self.open_file(file_name.as_str());
-        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('w'){
-            self.write_to_disk();
-        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('n'){
-            self.new_buffer();
-        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('j') {
-            self.prompt_jump();
-        } else if key_event.code == KeyCode::F(4){
-            self.line_numbers = !self.line_numbers;
-            self.offset.c = match self.line_numbers{
-                true =>{
-                    (self.cursor_pos.r.to_string().bytes().map(|_b| 1).sum::<u16>()) +1
-                },
-                false=>0,
-            };
-        }else if key_event.code == KeyCode::F(2){
-            let path = std::env::current_exe().unwrap().into_os_string().into_string().unwrap();
-            self.open_file((path +"/LICENSE").as_str());
+    fn process_keypress(&mut self, key_event: KeyEvent){
+        match (key_event.modifiers,key_event.code){
+            (KeyModifiers::CONTROL,KeyCode::Char('q'))=>{
+                self.should_close = true;
+            },
+            (KeyModifiers::CONTROL,KeyCode::Char('w'))=> {
+                self.write_to_disk();
+            },
+            (KeyModifiers::CONTROL,KeyCode::Char('o'))=> {
+                let mut file_name = self.prompt("File to be opened: ");
+                file_name = file_name.trim().to_string();
+                self.open_file(file_name.as_str());
+            },
+            (KeyModifiers::CONTROL,KeyCode::Char('n'))=> {
+                self.new_buffer();
+            },
+            (KeyModifiers::CONTROL,KeyCode::Char('j'))=> {
+                self.prompt_jump();
+            },
+            (_,KeyCode::F(num)) =>{
+                match num {
+                    2=>{
+                        let path = std::env::current_exe().unwrap().into_os_string().into_string().unwrap();
+                        self.open_file((path +"/LICENSE").as_str());
+                    },
+                    4=>{
+                        self.line_numbers = !self.line_numbers;
+                    },
+                    _ => {},
+                }
+            },
 
-        }
-
-        else{
-            match key_event.code {
-                KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-                    self.move_cursor(key_event.code);
-                },
-                KeyCode::Delete =>{
-                    self.buffer.remove(self.cursor_pos,Direction::Forward,1);
+            (_,KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right| KeyCode::Home | KeyCode::End) =>{
+                self.move_cursor(key_event.code);
+            },
+            (_,KeyCode::Delete) =>{
+                self.buffer.remove(self.cursor_pos,Direction::Forward,1);
+            },
+            (_,KeyCode::Backspace) =>{
+                let len = self.buffer.len();
+                self.buffer.remove(self.cursor_pos,Direction::Backward,1);
+                if len  != self.buffer.len(){
+                    self.move_cursor(KeyCode::Up);
                 }
-                KeyCode::Backspace =>{
-                    let len = self.buffer.len();
-                    self.buffer.remove(self.cursor_pos,Direction::Backward,1);
-                    if len  != self.buffer.len(){
-                        self.move_cursor(KeyCode::Up);
-                    }
-                    else {
-                        self.move_cursor(KeyCode::Left);
-                    }
+                else {
+                    self.move_cursor(KeyCode::Left);
                 }
-                KeyCode::Home | KeyCode::End =>{self.move_cursor(key_event.code)}
-                KeyCode::Enter=>{
-                    if !self.buffer.read_only{
-                        self.write_status = false;
-                    }
-                    self.buffer.insert(self.cursor_pos,'\n');
-                    self.move_cursor(KeyCode::Down);
+            },
+            (_,KeyCode::Enter)=>{
+                if !self.buffer.read_only{
+                    self.write_status = false;
                 }
-                KeyCode::Char(c) => {
-                    if !self.buffer.read_only{
-                        self.write_status = false;
-                    }                    self.buffer.insert(self.cursor_pos,c);
-                    self.move_cursor(KeyCode::Right);
-                },
-                KeyCode::Tab => {
-                    if !self.buffer.read_only{
-                        self.write_status = false;
-                    }
-                    self.buffer.insert(self.cursor_pos, '\t');
-                    self.move_cursor(KeyCode::Right);
-                    self.move_cursor(KeyCode::Right);
-                    self.move_cursor(KeyCode::Right);
-                    self.move_cursor(KeyCode::Right);
+                self.buffer.insert(self.cursor_pos,'\n');
+                self.move_cursor(KeyCode::Down);
+            },
+            (_,KeyCode::Char(c))=>{
+                if !self.buffer.read_only{
+                    self.write_status = false;
+                }                    self.buffer.insert(self.cursor_pos,c);
+                self.move_cursor(KeyCode::Right);
+            },
+            (_,KeyCode::Tab)=>{
+                if !self.buffer.read_only{
+                    self.write_status = false;
                 }
-                _ => {},
+                self.buffer.insert(self.cursor_pos,'\t');
+                self.move_cursor(KeyCode::End);
             }
+            _=>{},
         }
     }
 
