@@ -1,4 +1,4 @@
-# Red Editor (Rust EDitor)
+# Red (Rust EDitor)
 Red is a *very* barebones text editor.
 
 ## Key Bindings
@@ -7,6 +7,8 @@ Ctrl + O: Open file
 Ctrl + W: Write file
 
 Ctrl + Q: Quit editor
+
+Ctrl + J: Jump to line
 
 Home: Jump to beginning of line
 
