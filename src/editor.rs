@@ -89,7 +89,6 @@ impl Editor{
                         self.process_keypress(k);
                     },
                     Event::Resize(width,height) =>{
-                        self.update_status(format!("window sized by {}x{}",width,height).as_str());
                         self.window_size = (width,height).into();
                     }
                     _=>{},
@@ -111,7 +110,7 @@ impl Editor{
         };
         let file_name = file_name.trim().to_string();
         let message = self.buffer.write(Some(file_name.clone()));
-        self.update_status(message.as_str());
+        self.update_status(message.unwrap_or("Error failed to write to disk!".into()).as_str());
         self.write_status = true;
     }
 
@@ -155,12 +154,13 @@ impl Editor{
     }
 
     fn open_file(&mut self, file_name: &str){
+        let file_name = file_name.replace("\"","");
         if self.write_status ==false{
             self.prompt_write();
         }
         let new_buffer = Buffer::open(file_name.trim().as_ref());
-        if new_buffer.name.as_str() != "scratch"{
-            self.buffer = new_buffer;
+        if !new_buffer.1{
+            self.buffer = new_buffer.0;
             self.cursor_pos = Default::default();
             if !self.buffer.read_only{
                 self.update_status(format!("Successfully opened file {}",file_name).as_str());
@@ -170,9 +170,8 @@ impl Editor{
             match self.prompt(format!("Failed to open file {}. Create a file with the same name? ",file_name).as_str()).trim().to_lowercase().as_str(){
                 "yes" | "y" =>{
                     let file_name = file_name;
-                    self.buffer.name = file_name.to_string();
-                    self.write_to_disk();
-                    self.buffer = Buffer::open(file_name);
+                    self.buffer = new_buffer.0;
+                    self.buffer.write(None);
                 },
                 "n" | "no" =>{
                     self.update_status("");
@@ -201,7 +200,9 @@ impl Editor{
             self.write_to_disk();
         } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('n'){
             self.new_buffer();
-        }else if key_event.code == KeyCode::F(4){
+        } else if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('j') {
+            self.prompt_jump();
+        } else if key_event.code == KeyCode::F(4){
             self.line_numbers = !self.line_numbers;
             self.offset.c = match self.line_numbers{
                 true =>{
@@ -216,7 +217,6 @@ impl Editor{
         }
 
         else{
-            stdout().execute(crossterm::terminal::Clear(ClearType::All)).ok();
             match key_event.code {
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
                     self.move_cursor(key_event.code);
@@ -267,10 +267,12 @@ impl Editor{
         let mut stdout = stdout();
 
         execute!(stdout,
-        cursor::MoveTo(0,0),
-        cursor::Hide,
-        crossterm::terminal::Clear(ClearType::All),
+                cursor::MoveTo(0,0),
+                cursor::Hide,
+                crossterm::terminal::Clear(ClearType::FromCursorDown),
         ).ok();
+
+        let offset = (self.cursor_pos.r/(self.window_size.rows-1))*(self.window_size.rows-1);
 
         for i in 0..self.window_size.rows as u16{
             execute!(
@@ -279,26 +281,26 @@ impl Editor{
             SetColors(Colors::new(Color::Black,Color::White)),
 
             Print(match self.line_numbers{
-                true => format!("{:<2}",i),
-            false =>String::default(),
+                true => format!("{:<2}",i + offset),
+            false => String::default(),
             }),
             SetColors(Colors::new(Color::Reset,Color::Reset)),
             cursor::MoveTo(self.offset.c,i + self.offset.r),
             ).unwrap();
 
-            if (i as usize) < self.buffer.len(){
+            if ((offset + i) as usize) < self.buffer.len(){
                 let line = self.buffer.get(i as usize).unwrap();
                 let line_len = line.len();
                 if line_len > self.window_size.cols as usize{
                     write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
                 }
-                write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
+                write!(stdout,"{}",self.buffer.get((offset + i) as usize).unwrap()).ok();
             }
 
         }
 
         self.draw_modeline();
-        stdout.queue(cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r)).ok();
+        stdout.queue(cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r%(self.window_size.rows-1))).ok();
         stdout.queue(cursor::Show).ok();
         stdout.flush().ok();
     }
@@ -309,7 +311,7 @@ impl Editor{
         cursor::MoveTo(0 as u16,self.window_size.rows),
         crossterm::terminal::Clear(ClearType::CurrentLine),
         Print(self.status_message.trim()),
-        cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r),
+        cursor::MoveTo(self.cursor_pos.c + self.offset.c,self.cursor_pos.r%(self.window_size.rows-1)),
         ).ok();
 
         if self.draw_accumulator == 20{
@@ -333,22 +335,26 @@ impl Editor{
                 "modified"
             },
         };
-        let mut bpos = file_status_str.len();
-        if file_status_str.len()*4 < len{
-            bpos = cmp::max(len - file_status_str.len()*4,0);
+
+        let mut bpos= if file_status_str.len() > 0{
+            len - (file_status_str.len()*4) +1
         }
-        let modeline = format!("{:^20}{:>5}:{:<5}{:>bpos$}",self.buffer.name,
+        else {
+            0
+        };
+        let modeline = format!("{:<20}{:>5}:{:<5}{:>bpos$}",self.buffer.name,
                                                     self.cursor_pos.r,
                                                     self.cursor_pos.c,
                                                     file_status_str);
         let modeline = format!("{:len$}",modeline);
         execute!(
                 stdout(),
-        cursor::MoveTo(0,self.window_size.rows-2),
+        cursor::MoveTo(0,self.window_size.rows-1),
         SetColors(Colors::new(Color::Black,Color::White)),
         Print(modeline),
         SetColors(Colors::new(Color::Reset,Color::Reset)),
         ).unwrap();
+
     }
 
 
@@ -411,6 +417,15 @@ impl Editor{
     }
 
 
+    fn prompt_jump(&mut self) {
+        let result = self.prompt("Line to jump to: ");
+        let result = result.trim();
+        let mut res_i  = result.parse::<u16>().unwrap_or(self.cursor_pos.r);
+        if res_i > (self.buffer.len()-1) as u16{
+            res_i = self.cursor_pos.r
+        }
+        self.cursor_pos.r = res_i;
+    }
 }
 
 pub fn cleanup(){

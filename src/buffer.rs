@@ -1,5 +1,6 @@
+use std::fmt::Error;
 use std::fs::File as RFile;
-use std::io::{BufReader,BufWriter};
+use std::io::{BufReader, BufWriter, ErrorKind};
 use std::path::{Path,PathBuf};
 use std::io::prelude::*;
 use crate::terminal::Position;
@@ -7,6 +8,7 @@ use crate::terminal::Position;
 pub(crate) struct Buffer{
     pub name: String,
     lines: Vec<String>,
+    path: PathBuf,
     pub read_only: bool,
 }
 
@@ -26,16 +28,18 @@ impl Default for Buffer{
              lines: vec![],
              name: String::from("scratch"),
              read_only: false,
+             path: PathBuf::new(),
         }
     }
 }
 
 impl Buffer{
-    pub fn open(file_path: &str)->Self{
+    pub fn open(file_path: &str)->(Self,bool){
         let path = PathBuf::from(file_path);
-        let mut name = String::from("scratch");
+        let mut name = path.file_name().unwrap_or_default().to_str().unwrap().to_string();
         let mut read_only = false;
         let file = RFile::open(path.clone());
+        let mut new = true;
         let vec: Vec<String> = match file {
             Ok(f) =>{
                 let reader = BufReader::new(f.try_clone().unwrap());
@@ -44,6 +48,7 @@ impl Buffer{
                 name = path.file_name().unwrap().to_os_string().into_string().unwrap();
                 drop(f);
                 std::env::set_current_dir(&path.parent().unwrap_or(Path::new("."))).ok();
+                new = false;
 
                 lines
             },
@@ -52,27 +57,34 @@ impl Buffer{
             }
         };
 
-        if let Ok(f) = RFile::open(path){
+        if let Ok(f) = RFile::open(path.clone()){
             let stats = f.metadata().unwrap();
             read_only = stats.permissions().readonly();
         }
 
 
-        Self{
+        (Self{
             lines: vec,
             name: name,
             read_only: read_only,
-        }
+            path
+        },new)
 
     }
 
 
-    pub fn write(&mut self, file_name: Option<String>) -> String{
+    pub fn write(&mut self, file_name: Option<String>) -> Result<String,std::io::Error>{
+        let create = file_name.is_some();
         let file_name = file_name.unwrap_or(self.name.to_string());
-        let file_path = Path::new(file_name.as_str());
-        let mut outfile = match RFile::create(file_path){
-            Err(_) => {
-                return format!("Failed to open file {}.",file_path.to_str().unwrap());
+        let fully_qualified_file_path =if create{
+            Path::new(file_name.as_str())
+        }
+        else{
+            self.path.as_path()
+        };
+        let mut outfile = match RFile::create(fully_qualified_file_path){
+            Err(e) => {
+                return Err(e);
             }
             Ok(file) =>{
                 file
@@ -80,8 +92,8 @@ impl Buffer{
         };
 
         let _ : Vec<_> = self.lines.iter().map(|l| outfile.write((l.clone() + "\n").as_bytes())).collect();
-        self.name = String::from(file_path.file_name().unwrap().to_str().unwrap());
-        format!("Wrote {} lines to disk.",self.lines.len())
+        self.name = String::from(fully_qualified_file_path.file_name().unwrap().to_str().unwrap());
+        Ok(format!("Wrote {} lines to disk.",self.lines.len()))
     }
 
     pub(crate) fn insert(&mut self, pos: Position, c: char){
