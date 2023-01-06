@@ -6,8 +6,8 @@ use crate::terminal::Position;
 
 pub(crate) struct Buffer{
     pub name: String,
-    lines: Vec<String>,
     pub read_only: bool,
+    lines: Vec<String>,
 }
 
 pub(crate) enum Direction{

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub(crate) struct WindowSize{
     pub(crate) cols: u16,
     pub(crate) rows: u16,
@@ -39,3 +41,43 @@ impl Default for Position{
     }
 }
 
+pub enum Direction{
+    Up,
+    Down,
+    Left,
+    Right,
+    Beginning,
+    End,
+}
+
+pub(crate) struct Terminal{
+    pub window_size: WindowSize,
+    pub cursor_pos: Position,
+    pub path: PathBuf,
+}
+
+impl Terminal{
+    fn move_cursor(&mut self, dir: Direction){
+        match dir{
+            Direction::Up=>{
+
+            },
+            Direction::Down=>{
+
+            },
+            Direction::Left=>{
+
+            },
+            Direction::Right=>{
+
+            },
+            Direction::Beginning=>{
+
+            },
+            Direction::End=>{
+
+            },
+
+        }
+    }
+}
