@@ -263,7 +263,7 @@ impl Editor{
         }
     }
 
-    fn draw_lines(&self){
+    fn draw_lines(&mut self){
         let mut stdout = stdout();
 
         execute!(stdout,
@@ -275,26 +275,38 @@ impl Editor{
         let offset = (self.cursor_pos.r/(self.window_size.rows-1))*(self.window_size.rows-1);
 
         for i in 0..self.window_size.rows as u16{
-            execute!(
-                    stdout,
-            cursor::MoveTo(0,i),
-            SetColors(Colors::new(Color::Black,Color::White)),
-
-            Print(match self.line_numbers{
-                true => format!("{:<2}",i + offset),
-            false => String::default(),
-            }),
-            SetColors(Colors::new(Color::Reset,Color::Reset)),
-            cursor::MoveTo(self.offset.c,i + self.offset.r),
-            ).unwrap();
-
             if ((offset + i) as usize) < self.buffer.len(){
-                let line = self.buffer.get(i as usize).unwrap();
-                let line_len = line.len();
-                if line_len > self.window_size.cols as usize{
-                    write!(stdout,"{}",self.buffer.get(i as usize).unwrap()).ok();
+                let line = self.buffer.get((offset + i) as usize).unwrap();
+                if self.line_numbers {
+                    self.offset.c = ((((self.buffer.len() - 1) as f32).log10()) as u16) + 2;
+                    let size = self.offset.c as usize - 1;
+                    execute!(
+                        stdout,
+                        cursor::MoveTo(0,i),
+                        SetColors(Colors::new(Color::DarkYellow,Color::Black)),
+
+                        Print(match self.line_numbers{
+                            true => format!("{:>size$}",i + offset),
+                            false => String::default(),
+                        }),
+                        SetColors(Colors::new(Color::Reset,Color::Reset)),
+                        cursor::MoveTo(self.offset.c,i + self.offset.r),
+                    ).unwrap();
                 }
-                write!(stdout,"{}",self.buffer.get((offset + i) as usize).unwrap()).ok();
+                else{
+                    self.offset.c = 0;
+                    execute!(
+                        stdout,
+                        cursor::MoveTo(0,i + self.offset.r),
+                    ).unwrap();
+                }
+                if line.len() > self.window_size.cols as usize{
+                    // write!(stdout,"{}",line.as_str()[0..self.window_size.cols as usize]).ok();
+                }
+                else{
+
+                    write!(stdout,"{}",line).ok();
+                }
             }
 
         }
