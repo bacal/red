@@ -25,7 +25,7 @@ pub struct Editor{
     status_message: String,
     draw_accumulator: u32,
     write_status: bool,
-    line_numbers: bool,
+    pub line_numbers: bool,
     offset: Position,
 
 }
@@ -153,7 +153,7 @@ impl Editor{
         buf
     }
 
-    fn open_file(&mut self, file_name: &str){
+    pub fn open_file(&mut self, file_name: &str){
         let file_name = file_name.replace("\"","");
         if self.write_status ==false{
             self.prompt_write();
@@ -207,6 +207,10 @@ impl Editor{
             (KeyModifiers::CONTROL,KeyCode::Char('j'))=> {
                 self.prompt_jump();
             },
+            (KeyModifiers::CONTROL,KeyCode::Char('f'))=>{
+                let search_text = self.prompt("Find: ");
+                self.search(&search_text);
+            }
             (_,KeyCode::F(num)) =>{
                 match num {
                     2=>{
@@ -345,7 +349,7 @@ impl Editor{
             },
         };
 
-        let mut bpos= if file_status_str.len() > 0{
+        let bpos= if file_status_str.len() > 0{
             len - (file_status_str.len()*4) +1
         }
         else {
@@ -358,7 +362,7 @@ impl Editor{
         let modeline = format!("{:len$}",modeline);
         execute!(
                 stdout(),
-        cursor::MoveTo(0,self.window_size.rows-1),
+        cursor::MoveTo(0,self.window_size.rows-2),
         SetColors(Colors::new(Color::Black,Color::White)),
         Print(modeline),
         SetColors(Colors::new(Color::Reset,Color::Reset)),
@@ -422,6 +426,19 @@ impl Editor{
                 self.cursor_pos.c = line.unwrap().len() as u16;
             },
             _=>{},
+        }
+    }
+
+    fn search(&mut self, s: &String){
+        let line = self.buffer.find(s);
+        if line.is_ok(){
+            self.status_message = "found string ".to_string();
+            let line = line.unwrap();
+            let substr = self.buffer.get(line).unwrap();
+            if let Some(index) = substr.find(s) {
+                self.cursor_pos.r = line as u16;
+                self.cursor_pos.c = index as u16;
+            }
         }
     }
 

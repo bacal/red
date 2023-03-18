@@ -96,6 +96,15 @@ impl Buffer{
         Ok(format!("Wrote {} lines to disk.",self.lines.len()))
     }
 
+    pub(crate) fn find(&self, s: &String) -> Result<usize, ()>{
+        for (p,l) in self.lines.iter().enumerate(){
+            if l.contains(s){
+                return Ok(p);
+            }
+        }
+        Err(())
+    }
+
     pub(crate) fn insert(&mut self, pos: Position, c: char){
         if self.read_only{
             return
